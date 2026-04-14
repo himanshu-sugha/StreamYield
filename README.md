@@ -5,7 +5,8 @@
 [![HashKey Chain](https://img.shields.io/badge/HashKey%20Chain-Testnet%20133-6366f1)](https://testnet-explorer.hsk.xyz)
 [![Solidity](https://img.shields.io/badge/Solidity-0.8.24-363636)](https://soliditylang.org)
 [![Tests](https://img.shields.io/badge/Tests-14%2F14%20passing-10b981)](./contracts/test)
-[![AI](https://img.shields.io/badge/AI-Zhipu%20GLM--4-a855f7)](https://open.bigmodel.cn)
+[![AI](https://img.shields.io/badge/AI-GLM--4%20Autonomous-a855f7)](https://open.bigmodel.cn)
+[![Vaults](https://img.shields.io/badge/Vaults-ERC--4626-ec4899)](https://eips.ethereum.org/EIPS/eip-4626)
 [![Tracks](https://img.shields.io/badge/Tracks-PayFi%20%7C%20DeFi%20%7C%20AI-f59e0b)](https://dorahacks.io/hackathon/2045)
 
 ---
@@ -97,12 +98,13 @@ Employer deposits $100K payroll capital
 
 Four contracts deployed on HashKey Chain Testnet (Solidity 0.8.24, OpenZeppelin v5):
 
-| Contract | Purpose | Key Functions |
-|----------|---------|---------------|
-| `MockUSDC.sol` | Test ERC-20 stablecoin | `faucet()`, `transfer()`, `approve()` |
-| `RWAYieldRouter.sol` | Routes capital to 3 yield tiers | `deposit()`, `withdraw()`, `getYield()` |
-| `StreamVault.sol` | Core streaming & vesting logic | `createStream()`, `claimVested()`, `getClaimable()` |
-| `HSPSettlementEmitter.sol` | HashKey Settlement Protocol events | `emitSettlement()` |
+| Contract | Purpose | Key Functions | Standard |
+|----------|---------|---------------|----------|
+| `MockUSDC.sol` | Test ERC-20 stablecoin | `faucet()`, `transfer()` | ERC-20 |
+| `RWATierVault.sol` | Individual RWA yield vault | `deposit()`, `redeem()`, `totalAssets()` | ERC-4626 |
+| `RWAYieldRouter.sol` | Orchestrates 3 tier vaults | `deposit()`, `withdraw()`, `harvestYield()` | Custom |
+| `StreamVault.sol` | Core streaming & vesting | `createStream()`, `claimVested()` | Custom |
+| `HSPSettlementEmitter.sol` | HSP state machine | `createSettlement()`, `finalizeSettlement()` | HSP |
 
 ### StreamVault — Core Logic
 
@@ -167,31 +169,22 @@ A Node.js/Express server that wraps Zhipu GLM-4 for vault recommendations.
 
 The backend uses a **hybrid approach** — a rules engine for speed and accuracy, GLM-4 for human-readable reasoning:
 
-**Step 1: Rules engine scores the stream**
+**Step 1: Financial Reasoning (The Strategist)**
+GLM-4 synthesizes satellite-level market context + news intelligence into professional trading reports and makes the **final on-chain vault routing decision**.
 
-| Condition | Recommended Tier |
-|-----------|-----------------|
-| Duration < 30 days OR risk = low | Stable (4%) |
-| Duration 30–89 days OR risk = medium | Balanced (8%) |
-| Duration ≥ 90 days AND risk = high | Growth (12%) |
+**Step 2: Autonomous Decision Mode**
+The agent no longer uses hard-coded rules. It receives:
+- **Market Context:** Risk-free rates, credit spreads, yield curve shape.
+- **Liquidity Constraints:** T+1 to T+30 redemption windows.
+- **Risk Metrics:** Sharpe ratios and max drawdowns for all vault tiers.
 
-**Step 2: Zhipu GLM-4 generates reasoning**
+It outputs structured JSON specifying the `recommendedTier` with a `confidence` score and `riskWarning`.
 
-```
-Input:  $10,000 stream, 30 days, medium risk
-Output: "The Balanced vault was selected because it offers a 
-         moderate risk-reward profile perfectly matching your 
-         30-day payroll stream. Expected yield: $65.75 USDC."
-```
+| Mode | Capability | Decision Logic |
+|------|------------|----------------|
+| **Autonomous** | Full GLM-4 Reasoning | Financial risk-adjusted optimization |
+| **Fallback** | Template-based | Duration-liquidity rules engine |
 
-**Fallback:** If no API key is set, a smart template generates the reasoning. The app works 100% without the AI key.
-
-| Feature | With Zhipu Key | Without Key |
-|---------|----------------|-------------|
-| Vault recommendation | GLM-4 generated | Rules-based |
-| Reasoning text | Natural language | Template string |
-| Projected yield | Calculated | Calculated |
-| Response time | ~3 seconds | ~50ms |
 
 ---
 
