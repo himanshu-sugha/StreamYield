@@ -1,0 +1,9 @@
+{
+  "network": "hashkeyTestnet",
+  "chainId": 133,
+  "MockUSDC": "0x1ecED1DDBF70987d28659fd83fA9B24D884bDB87",
+  "RWAYieldRouter": "0x96f132319963f885700C985f72037C3F3425D138",
+  "StreamVault": "0x0507302FBDACEc8D9A83E722Ce016064a6578848",
+  "HSPSettlementEmitter": "0x5b654a8A5bBFc3aC337Dfcb044175dA549aEBfbB",
+  "deployedAt": "2026-04-13T09:54:07.293Z"
+}
