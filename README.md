@@ -1,10 +1,10 @@
 # StreamYield — AI-Optimized Payroll Streaming on HashKey Chain
 
-> **PayFi protocol that streams employee salaries per-second while an AI agent routes unvested capital into RWA yield vaults on HashKey Chain — turning payroll from a cost center into a profit center.**
+> **PayFi protocol that streams employee salaries per-second while an autonomous AI agent routes unvested capital into ERC-4626 RWA yield vaults on HashKey Chain — turning payroll from a cost center into a profit center.**
 
 [![HashKey Chain](https://img.shields.io/badge/HashKey%20Chain-Testnet%20133-6366f1)](https://testnet-explorer.hsk.xyz)
 [![Solidity](https://img.shields.io/badge/Solidity-0.8.24-363636)](https://soliditylang.org)
-[![Tests](https://img.shields.io/badge/Tests-14%2F14%20passing-10b981)](./contracts/test)
+[![Tests](https://img.shields.io/badge/Tests-18%2F18%20passing-10b981)](./contracts/test)
 [![AI](https://img.shields.io/badge/AI-GLM--4%20Autonomous-a855f7)](https://open.bigmodel.cn)
 [![Vaults](https://img.shields.io/badge/Vaults-ERC--4626-ec4899)](https://eips.ethereum.org/EIPS/eip-4626)
 [![Tracks](https://img.shields.io/badge/Tracks-PayFi%20%7C%20DeFi%20%7C%20AI-f59e0b)](https://dorahacks.io/hackathon/2045)
@@ -37,12 +37,12 @@ StreamYield is a **PayFi protocol** built on HashKey Chain that solves the #1 in
 
 It does this in 4 steps:
 
-1. **Employer deposits payroll** into `StreamVault` — capital is immediately deployed to an RWA yield vault
-2. **AI selects the optimal vault** — Zhipu GLM-4 analyses duration, amount, and risk tolerance to recommend Stable (4%), Balanced (8%), or Growth (12%) APY
+1. **Employer deposits payroll** into `StreamVault` — capital is immediately deployed to an ERC-4626 RWA yield vault
+2. **Autonomous AI decides the vault** — Zhipu GLM-4 receives live market context (yield curve, Sharpe ratios, credit spreads) and makes the routing decision with a confidence score — no hard-coded rules
 3. **Salary streams per-second** — employees accumulate vested salary every block; no waiting until month-end
-4. **Employer collects yield** — when the stream closes, the employer withdraws all accumulated RWA yield
+4. **Employer collects yield** — when the stream closes, the ERC-4626 vault redeems shares and sends accumulated yield directly to the employer
 
-**Example:** A company with $500K monthly payroll earns **~$3,300/month** in yield from the Balanced vault instead of $0 from a traditional bank account.
+**Example:** A company with $500K monthly payroll earns **~$3,300/month** in yield from the Balanced vault instead of $0 sitting in a traditional bank account.
 
 ---
 
@@ -54,7 +54,8 @@ It does this in 4 steps:
 | Payment frequency | Monthly batch | Per-second streaming |
 | Employee liquidity | 0 until payday | Claimable any time |
 | Yield to employer | $0 | Projected $3K–$40K/month per $500K payroll |
-| Settlement standard | Bank wire | HSP on HashKey Chain |
+| Settlement standard | Bank wire | HSP state machine on HashKey Chain |
+| Vault standard | N/A | ERC-4626 (same standard as Aave, Morpho, Ondo) |
 
 ---
 
@@ -65,46 +66,53 @@ Employer deposits $100K payroll capital
           │
           ▼
 ┌─────────────────────────────────────────────────────┐
-│  StreamVault.createStream()                         │
-│  Lock capital → Route to RWAYieldRouter             │
-│  → Emit HSPSettlementEvent                          │
-└───────────────────────┬─────────────────────────────┘
-                        ▼
-┌─────────────────────────────────────────────────────┐
 │  AI Agent Backend (Node.js + Zhipu GLM-4)           │
-│  Analyse: duration + amount + risk tolerance        │
-│  → Recommend vault tier (Stable/Balanced/Growth)    │
-│  → Generate human-readable reasoning                │
+│  Input: duration, amount, risk, market conditions   │
+│  → Autonomous vault decision (no hard-coded rules)  │
+│  → Returns: tier, confidence score, risk warning    │
 └───────────────────────┬─────────────────────────────┘
-                        ▼
+                        ↓ employer submits tx with tier + aiReasoning
 ┌─────────────────────────────────────────────────────┐
-│  RWAYieldRouter                                     │
-│  Route capital to selected vault tier               │
-│  → Accrue yield per-second (4% / 8% / 12% APY)     │
+│  StreamVault.createStream()                         │
+│  Pull tokens → approve router → ERC-4626 deposit   │
+│  → Store aiReasoning on-chain → emit StreamCreated  │
 └───────────────────────┬─────────────────────────────┘
-                        ▼
+                        ↓
 ┌─────────────────────────────────────────────────────┐
-│  Per-second vesting (StreamVault)                   │
-│  Employee calls getClaimable() → claimVested()      │
-│  → Receives salary pro-rated to the second          │
+│  RWAYieldRouter → RWATierVault (ERC-4626)           │
+│  Mints shares to router for the stream              │
+│  totalAssets() tracks real token balance            │
+│  convertToAssets(shares) enables yield accounting   │
 └───────────────────────┬─────────────────────────────┘
-                        ▼
-            Stream ends → Employer withdraws yield
+                        ↓ every payroll action
+┌─────────────────────────────────────────────────────┐
+│  HSPSettlementEmitter (State Machine)               │
+│  createSettlement() → PENDING                       │
+│  expressSettle()    → SETTLED (with proofHash)      │
+│  verifyProof()      → on-chain audit trail          │
+└───────────────────────┬─────────────────────────────┘
+                        ↓ employee calls at any time
+┌─────────────────────────────────────────────────────┐
+│  StreamVault.claimVested()                          │
+│  Redeems ERC-4626 shares → transfers salary         │
+│  Polls every 5s on frontend — updates live          │
+└───────────────────────┴─────────────────────────────┘
+              Stream ends → closeStream() harvests yield
 ```
 
 ---
 
 ## 4. Smart Contracts
 
-Four contracts deployed on HashKey Chain Testnet (Solidity 0.8.24, OpenZeppelin v5):
+Five contracts deployed on HashKey Chain Testnet (Solidity 0.8.24 + Cancun EVM, OpenZeppelin v5):
 
 | Contract | Purpose | Key Functions | Standard |
 |----------|---------|---------------|----------|
-| `MockUSDC.sol` | Test ERC-20 stablecoin | `faucet()`, `transfer()` | ERC-20 |
-| `RWATierVault.sol` | Individual RWA yield vault | `deposit()`, `redeem()`, `totalAssets()` | ERC-4626 |
-| `RWAYieldRouter.sol` | Orchestrates 3 tier vaults | `deposit()`, `withdraw()`, `harvestYield()` | Custom |
-| `StreamVault.sol` | Core streaming & vesting | `createStream()`, `claimVested()` | Custom |
-| `HSPSettlementEmitter.sol` | HSP state machine | `createSettlement()`, `finalizeSettlement()` | HSP |
+| `MockUSDC.sol` | Test ERC-20 stablecoin with faucet | `faucet()`, `transfer()`, `approve()` | ERC-20 |
+| `RWATierVault.sol` | Per-tier tokenized yield vault (internal) | `deposit()`, `redeem()`, `totalAssets()`, `convertToAssets()` | **ERC-4626** |
+| `RWAYieldRouter.sol` | Orchestrates 3 ERC-4626 tier vaults | `deposit()`, `withdraw()`, `harvestYield()`, `getVaultAddress()` | Custom |
+| `StreamVault.sol` | Core streaming, vesting & HSP integration | `createStream()`, `claimVested()`, `closeStream()` | Custom |
+| `HSPSettlementEmitter.sol` | HSP settlement lifecycle state machine | `createSettlement()`, `expressSettle()`, `finalizeSettlement()`, `verifyProof()` | HSP |
 
 ### StreamVault — Core Logic
 
@@ -113,90 +121,101 @@ function createStream(
     address employee,
     address token,
     uint256 totalAmount,
-    uint256 duration,        // seconds
+    uint256 duration,        // seconds (minimum 60)
     uint8 vaultTier,         // 0=Stable, 1=Balanced, 2=Growth
-    string calldata aiReasoning
+    string calldata aiReasoning  // GLM-4 reasoning stored on-chain
 ) external returns (uint256 streamId)
 ```
 
 - Linear vesting: `vestedAmount = totalAmount × elapsedTime / duration`
-- Capital immediately deployed to `RWAYieldRouter` on stream creation
-- AI reasoning string stored on-chain, displayed in employee dashboard
-- Employer stream registry + employee stream registry for easy lookup
+- Capital immediately deposited to ERC-4626 vault on stream creation
+- AI reasoning string stored on-chain and displayed in employee dashboard
+- Every action auto-creates and express-settles an HSP settlement record
 
-### RWAYieldRouter — Yield Tiers
-
-```solidity
-// Tiered APY rates (simulated on testnet)
-uint256 public constant STABLE_APY  = 400;   // 4%
-uint256 public constant BALANCED_APY = 800;  // 8%
-uint256 public constant GROWTH_APY   = 1200; // 12%
-```
-
-Yield accrues linearly per-second based on principal × APY × elapsed time.
-
-### HSPSettlementEmitter — Protocol Integration
+### RWAYieldRouter — ERC-4626 Vaults
 
 ```solidity
-event SettlementEvent(
-    address indexed employer,
-    address indexed employee,
-    address token,
-    uint256 amount,
-    uint256 streamId,
-    uint256 timestamp,
-    string settlementType   // "STREAM_CREATED" | "STREAM_CLAIMED"
-);
+// Three independent ERC-4626 vaults — deployed inside the constructor
+RWATierVault public stableVault;    // 400 bps = 4%
+RWATierVault public balancedVault;  // 800 bps = 8%
+RWATierVault public growthVault;    // 1200 bps = 12%
+
+// Router holds shares on behalf of each stream
+mapping(uint256 => VaultPosition) public positions; // streamId → shares
 ```
 
-Every payroll action emits a structured HSP-compatible event for compliance and settlement tracking.
+Each vault is a fully conformant ERC-4626 implementation. `harvestYield()` redeems all remaining shares after a stream ends and sends proceeds to the employer.
+
+### HSPSettlementEmitter — State Machine
+
+```solidity
+enum SettlementStatus { PENDING, PROCESSING, SETTLED, DISPUTED, CANCELLED }
+enum SettlementType   { STREAM_CREATED, STREAM_CLAIMED, STREAM_CLOSED, YIELD_HARVESTED }
+
+// On-chain proof hash for every settlement
+bytes32 proofHash = keccak256(abi.encodePacked(
+    settlementId, employer, employee, token, amount, streamId, settlementType, timestamp
+));
+```
+
+Every payroll action in `StreamVault` automatically calls `createSettlement()` + `expressSettle()` — the settlement transitions from `PENDING → SETTLED` atomically with a tamper-proof `proofHash` stored on-chain.
 
 ---
 
 ## 5. AI Agent Backend
 
-A Node.js/Express server that wraps Zhipu GLM-4 for vault recommendations.
+A Node.js/Express server where **Zhipu GLM-4 is the sole decision-maker**.
 
 ### API Endpoints
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
-| `/api/recommend-vault` | POST | Get AI vault recommendation for a stream |
-| `/api/tiers` | GET | Fetch all vault tier metadata |
-| `/health` | GET | Server health check |
+| `/api/recommend-vault` | POST | Autonomous vault recommendation with confidence score |
+| `/api/analyze-risk` | POST | Multi-factor portfolio risk assessment |
+| `/api/tiers` | GET | Vault tier metadata + live market context |
+| `/api/health` | GET | Server status + AI mode indicator |
 
-### How the AI Decides
+### How the AI Decides (Autonomous Mode)
 
-The backend uses a **hybrid approach** — a rules engine for speed and accuracy, GLM-4 for human-readable reasoning:
+No hard-coded if/else rules. GLM-4 receives a structured prompt containing:
 
-**Step 1: Financial Reasoning (The Strategist)**
-GLM-4 synthesizes satellite-level market context + news intelligence into professional trading reports and makes the **final on-chain vault routing decision**.
+| Input | Value |
+|-------|-------|
+| Stream parameters | Amount, duration, risk tolerance, employer profile |
+| Market context | Risk-free rate (3M T-bill), credit spread, yield curve shape |
+| Vault metrics | Sharpe ratios (2.1 / 1.4 / 0.9), max drawdowns, T+ liquidity days |
+| Yield projections | Pre-calculated for all 3 tiers |
 
-**Step 2: Autonomous Decision Mode**
-The agent no longer uses hard-coded rules. It receives:
-- **Market Context:** Risk-free rates, credit spreads, yield curve shape.
-- **Liquidity Constraints:** T+1 to T+30 redemption windows.
-- **Risk Metrics:** Sharpe ratios and max drawdowns for all vault tiers.
+GLM-4 returns structured JSON:
 
-It outputs structured JSON specifying the `recommendedTier` with a `confidence` score and `riskWarning`.
+```json
+{
+  "recommendedTier": 0,
+  "confidence": 90,
+  "primaryReason": "Duration-liquidity match is critical for short-term payroll streams.",
+  "reasoning": "Given the 30-day stream duration, Tier 0's T+1 liquidity aligns perfectly...",
+  "riskWarning": "Tier 0 may not keep pace with potential market gains if yield curve normalizes.",
+  "alternativeTier": 1,
+  "alternativeReason": "Employers seeking balance between risk and return might prefer Tier 1."
+}
+```
 
-| Mode | Capability | Decision Logic |
-|------|------------|----------------|
-| **Autonomous** | Full GLM-4 Reasoning | Financial risk-adjusted optimization |
-| **Fallback** | Template-based | Duration-liquidity rules engine |
-
+| Mode | Trigger | Decision Logic |
+|------|---------|----------------|
+| **Autonomous** | `ZHIPU_API_KEY` set | Full GLM-4 financial reasoning |
+| **Fallback** | No API key | Duration-liquidity constraint rules |
 
 ---
 
 ## 6. RWA Vault Tiers
 
-| Tier | Name | APY | Risk | Best For | Real-World Assets |
-|------|------|-----|------|----------|-------------------|
-| 0 | Stable | 4% | Conservative | Streams < 30 days | T-bills, money market funds |
-| 1 | Balanced | 8% | Moderate | 30–90 day payroll | Real estate + corporate bonds |
-| 2 | Growth | 12% | Aggressive | Streams > 90 days | Private credit, high-yield RE |
+| Tier | Name | APY | ERC-4626 Symbol | Sharpe | Max Drawdown | Liquidity |
+|------|------|-----|-----------------|--------|--------------|-----------|
+| 0 | Stable | 4% | `sySTV` | 2.1 | ~0% | T+1 |
+| 1 | Balanced | 8% | `syBAV` | 1.4 | ~3% | T+7 |
+| 2 | Growth | 12% | `syGTV` | 0.9 | ~8% | T+30 |
 
-**Yield Projection Examples** (based on `projectedYield = principal × APY × (days/365)`):
+**Yield Projection Examples:**
 
 | Payroll | Duration | Vault | Projected Yield |
 |---------|----------|-------|----------------|
@@ -209,23 +228,42 @@ It outputs structured JSON specifying the `recommendedTier` with a `confidence` 
 
 ## 7. HSP (HashKey Settlement Protocol) Integration
 
-`HSPSettlementEmitter.sol` emits structured settlement events on every payroll action, making StreamYield natively compatible with HashKey's settlement infrastructure.
+### Settlement Lifecycle
 
-**Settlement payload structure:**
+Every payroll action in `StreamVault` creates and immediately express-settles an HSP record:
 
-```json
-{
-  "employer":       "0xC1425Db1...",
-  "employee":       "0x...",
-  "token":          "0x1ecED1...",
-  "amount":         "10000000000",
-  "streamId":       0,
-  "timestamp":      1744609200,
-  "settlementType": "STREAM_CREATED"
-}
+```
+createStream()  → PENDING → SETTLED  (type: STREAM_CREATED)
+claimVested()   → PENDING → SETTLED  (type: STREAM_CLAIMED)
+closeStream()   → PENDING → SETTLED  (type: YIELD_HARVESTED, if yield > 0)
 ```
 
-Events are indexed by both `employer` and `employee` addresses, enabling any HSP-compatible system to subscribe and process settlements in real time.
+HSP supports a full two-phase settlement for larger or flagged amounts:
+
+```
+createSettlement()    → PENDING
+processSettlement()   → PROCESSING
+finalizeSettlement()  → SETTLED
+```
+
+Or dispute/cancel:
+```
+disputeSettlement()   → DISPUTED
+cancelSettlement()    → CANCELLED
+```
+
+### On-Chain Proof
+
+Every settlement carries a tamper-proof `proofHash` verifiable on-chain:
+
+```solidity
+function verifyProof(uint256 settlementId)
+    external view returns (bool valid, bytes32 expectedHash)
+```
+
+### Settlement Indexes
+
+Settlements are indexed by `employer`, `employee`, and `streamId` for efficient querying by any HSP-compatible downstream system.
 
 ---
 
@@ -244,23 +282,32 @@ Next.js 14 app with wagmi v2, viem, and RainbowKit for wallet connectivity.
 
 ### Key UX Features
 
-- **Real-time vesting** — employee dashboard polls every 5 seconds; progress bar updates automatically
-- **AI-in-form** — employer can click "Get AI recommendation" before picking a vault; recommendation auto-selects the tier
-- **Store AI reasoning on-chain** — the GLM-4 reasoning text is passed as `aiReasoning` argument to `createStream()` and displayed on the employee's stream card
+- **Real-time vesting** — employee dashboard polls every 5 seconds; progress bar updates live
+- **AI-in-form** — click "Get AI recommendation" before picking a vault; GLM-4 auto-selects the tier + fills in reasoning
+- **AI reasoning on-chain** — GLM-4's reasoning text is passed as `aiReasoning` to `createStream()` and shown on the employee's stream card
 - **Wallet-gated** — dashboards show a clean connect prompt until MetaMask is connected to Chain ID 133
+- **Confidence + risk warning** — employer sees GLM-4's confidence score and risk warning before confirming
 
 ---
 
 ## 9. Deployed Contracts (HashKey Chain Testnet)
 
+> Deployed at block height ~April 2026. Chain ID: 133. RPC: `https://testnet.hsk.xyz`
+
 | Contract | Address |
 |----------|---------|
-| MockUSDC | [`0x1ecED1DDBF70987d28659fd83fA9B24D884bDB87`](https://testnet-explorer.hsk.xyz/address/0x1ecED1DDBF70987d28659fd83fA9B24D884bDB87) |
-| RWAYieldRouter | [`0x96f132319963f885700C985f72037C3F3425D138`](https://testnet-explorer.hsk.xyz/address/0x96f132319963f885700C985f72037C3F3425D138) |
-| StreamVault | [`0x0507302FBDACEc8D9A83E722Ce016064a6578848`](https://testnet-explorer.hsk.xyz/address/0x0507302FBDACEc8D9A83E722Ce016064a6578848) |
-| HSPSettlementEmitter | [`0x5b654a8A5bBFc3aC337Dfcb044175dA549aEBfbB`](https://testnet-explorer.hsk.xyz/address/0x5b654a8A5bBFc3aC337Dfcb044175dA549aEBfbB) |
+| MockUSDC | [`0x2f60576867dd52A3fDFEc6710D42B4471A8534b5`](https://testnet-explorer.hsk.xyz/address/0x2f60576867dd52A3fDFEc6710D42B4471A8534b5) |
+| RWAYieldRouter | [`0xDa75B46D38eB43c68FA87be38D4D50A410FC8016`](https://testnet-explorer.hsk.xyz/address/0xDa75B46D38eB43c68FA87be38D4D50A410FC8016) |
+| StreamVault | [`0x5818ea2a9163Efec9761CeF45cDd4D3B0b532809`](https://testnet-explorer.hsk.xyz/address/0x5818ea2a9163Efec9761CeF45cDd4D3B0b532809) |
+| HSPSettlementEmitter | [`0x3C3e73f0F092085c66c2804F17F5500743D735E2`](https://testnet-explorer.hsk.xyz/address/0x3C3e73f0F092085c66c2804F17F5500743D735E2) |
 
-**Network:** HashKey Chain Testnet · Chain ID: 133 · RPC: `https://testnet.hsk.xyz`
+**ERC-4626 Sub-Vaults (created by RWAYieldRouter constructor):**
+
+| Vault | Symbol | APY | Address |
+|-------|--------|-----|---------|
+| Stable | `sySTV` | 4% | [`0xb5d498db2cACdFA2fa7a6FCfaAc6A90040228B46`](https://testnet-explorer.hsk.xyz/address/0xb5d498db2cACdFA2fa7a6FCfaAc6A90040228B46) |
+| Balanced | `syBAV` | 8% | [`0xa0B1557d4642665779Bf074697f97ef19D7446ab`](https://testnet-explorer.hsk.xyz/address/0xa0B1557d4642665779Bf074697f97ef19D7446ab) |
+| Growth | `syGTV` | 12% | [`0x5C9f41E374119CDE073bceCD36A242B2434D2b03`](https://testnet-explorer.hsk.xyz/address/0x5C9f41E374119CDE073bceCD36A242B2434D2b03) |
 
 ---
 
@@ -268,16 +315,17 @@ Next.js 14 app with wagmi v2, viem, and RainbowKit for wallet connectivity.
 
 | Layer | Technology |
 |-------|-----------|
-| **Blockchain** | HashKey Chain Testnet (Chain ID 133) |
+| **Blockchain** | HashKey Chain Testnet (Chain ID 133, Cancun EVM) |
 | **Smart Contracts** | Solidity 0.8.24 + OpenZeppelin v5 |
+| **Vault Standard** | ERC-4626 (3 independent tokenized vault contracts) |
 | **Development** | Hardhat v2 (CommonJS) |
-| **AI / LLM** | Zhipu GLM-4 via `openai` SDK (OpenAI-compatible endpoint) |
+| **AI / LLM** | Zhipu GLM-4 — autonomous decision mode (no if/else rules) |
 | **AI Backend** | Node.js 18 + Express |
 | **Frontend** | Next.js 14 (App Router) + TypeScript |
 | **Web3** | wagmi v2 + viem + RainbowKit v2 |
 | **Styling** | Tailwind CSS + custom dark theme |
-| **Settlement** | HSP (HashKey Settlement Protocol) |
-| **Test Token** | MockUSDC (ERC-20 with faucet) |
+| **Settlement** | HSP state machine (PENDING→PROCESSING→SETTLED lifecycle) |
+| **Test Token** | MockUSDC (ERC-20 with permissionless faucet) |
 
 ---
 
@@ -285,39 +333,42 @@ Next.js 14 app with wagmi v2, viem, and RainbowKit for wallet connectivity.
 
 ```
 streamyield/
-├── contracts/                    # Hardhat project
+├── contracts/                       # Hardhat project
 │   ├── contracts/
-│   │   ├── MockUSDC.sol          # Test ERC-20 stablecoin
-│   │   ├── RWAYieldRouter.sol    # 3-tier RWA yield vault
-│   │   ├── StreamVault.sol       # Core streaming + vesting
-│   │   └── HSPSettlementEmitter.sol # HSP settlement events
+│   │   ├── MockUSDC.sol             # ERC-20 test stablecoin (6 decimals)
+│   │   ├── RWAYieldRouter.sol       # Orchestrator + deploys 3 ERC-4626 vaults
+│   │   │   └─ RWATierVault (×3)    # Stable / Balanced / Growth ERC-4626 vaults
+│   │   ├── StreamVault.sol          # Core streaming, vesting, HSP wiring
+│   │   └── HSPSettlementEmitter.sol # Full HSP lifecycle state machine
 │   ├── scripts/
-│   │   └── deploy.js             # Full deployment script
+│   │   └── deploy.js                # Deploy + link all contracts
 │   ├── test/
-│   │   └── StreamYield.test.js   # 14 comprehensive tests
-│   ├── hardhat.config.js         # HashKey Chain Testnet config
-│   ├── deployed-addresses.json   # Auto-generated after deploy
-│   └── .env                      # PRIVATE_KEY
+│   │   └── StreamYield.test.js      # 18 tests across all contracts
+│   ├── hardhat.config.js            # HashKey Testnet + Cancun EVM
+│   ├── deployed-addresses.json      # Auto-generated with sub-vault addresses
+│   └── .env                         # PRIVATE_KEY
 │
-├── backend/                      # AI Agent service
-│   ├── server.js                 # Express server + GLM-4 integration
+├── backend/                         # AI Agent service
+│   ├── server.js                    # Express + autonomous GLM-4 decision engine
 │   ├── package.json
-│   └── .env                      # ZHIPU_API_KEY, PORT
+│   └── .env                         # ZHIPU_API_KEY, PORT
 │
-└── frontend/                     # Next.js 14 app
-    ├── app/
-    │   ├── page.tsx              # Landing page
-    │   ├── employer/page.tsx     # Employer dashboard
-    │   ├── employee/page.tsx     # Employee dashboard
-    │   ├── ai-insights/page.tsx  # AI vault advisor
-    │   ├── layout.tsx            # Root layout + providers
-    │   ├── providers.tsx         # wagmi + RainbowKit + React Query
-    │   └── globals.css           # Design system
-    ├── components/
-    │   └── Navbar.tsx            # Navigation bar
-    ├── lib/
-    │   └── config.ts             # Contract addresses, ABIs, chain config
-    └── .env.local                # NEXT_PUBLIC_* contract addresses
+├── frontend/                        # Next.js 14 app
+│   ├── app/
+│   │   ├── page.tsx                 # Landing page
+│   │   ├── employer/page.tsx        # Employer dashboard (AI + stream creation)
+│   │   ├── employee/page.tsx        # Employee dashboard (live vesting + claim)
+│   │   ├── ai-insights/page.tsx     # GLM-4 vault advisor
+│   │   ├── layout.tsx               # Root layout + providers
+│   │   ├── providers.tsx            # wagmi + RainbowKit + React Query
+│   │   └── globals.css              # Design system (dark mode)
+│   ├── components/
+│   │   └── Navbar.tsx               # Navigation bar
+│   ├── lib/
+│   │   └── config.ts                # Contract addresses, ABIs, chain config
+│   └── .env.local                   # NEXT_PUBLIC_* contract addresses
+│
+└── README.md
 ```
 
 ---
@@ -332,21 +383,15 @@ streamyield/
 ### 1. Clone & Install
 
 ```bash
-git clone https://github.com/himanshu-sugha/streamyield
-cd streamyield
+git clone https://github.com/himanshu-sugha/StreamYield
+cd StreamYield
 
-# Install all three packages
 cd contracts && npm install
-cd ../backend && npm install
+cd ../backend  && npm install
 cd ../frontend && npm install
 ```
 
 ### 2. Configure Environment
-
-**`contracts/.env`**
-```env
-PRIVATE_KEY=your_deployer_private_key
-```
 
 **`backend/.env`**
 ```env
@@ -354,12 +399,12 @@ ZHIPU_API_KEY=your_zhipu_api_key   # Free at: https://open.bigmodel.cn/usercente
 PORT=3001
 ```
 
-**`frontend/.env.local`** (pre-filled with deployed addresses)
+**`frontend/.env.local`** (pre-filled with deployed addresses — no changes needed)
 ```env
-NEXT_PUBLIC_MOCK_USDC_ADDRESS=0x1ecED1DDBF70987d28659fd83fA9B24D884bDB87
-NEXT_PUBLIC_RWA_ROUTER_ADDRESS=0x96f132319963f885700C985f72037C3F3425D138
-NEXT_PUBLIC_STREAM_VAULT_ADDRESS=0x0507302FBDACEc8D9A83E722Ce016064a6578848
-NEXT_PUBLIC_HSP_EMITTER_ADDRESS=0x5b654a8A5bBFc3aC337Dfcb044175dA549aEBfbB
+NEXT_PUBLIC_MOCK_USDC_ADDRESS=0x2f60576867dd52A3fDFEc6710D42B4471A8534b5
+NEXT_PUBLIC_RWA_ROUTER_ADDRESS=0xDa75B46D38eB43c68FA87be38D4D50A410FC8016
+NEXT_PUBLIC_STREAM_VAULT_ADDRESS=0x5818ea2a9163Efec9761CeF45cDd4D3B0b532809
+NEXT_PUBLIC_HSP_EMITTER_ADDRESS=0x3C3e73f0F092085c66c2804F17F5500743D735E2
 NEXT_PUBLIC_BACKEND_URL=http://localhost:3001
 ```
 
@@ -378,21 +423,21 @@ cd frontend && npm run dev
 ### 4. Get Testnet Tokens
 
 1. **HSK (gas):** [faucet.hsk.xyz](https://faucet.hsk.xyz)
-2. **mUSDC (test stablecoin):** Call `faucet()` on the MockUSDC contract at `0x1ecED1...` via HashKey Explorer write tab
+2. **mUSDC:** Call `faucet(yourAddress, amount)` on MockUSDC at `0x2f605...` via [HashKey Explorer](https://testnet-explorer.hsk.xyz/address/0x2f60576867dd52A3fDFEc6710D42B4471A8534b5#write)
 
 ### 5. Deploy Your Own Contracts (optional)
 
 ```bash
 cd contracts
+echo "PRIVATE_KEY=your_key" > .env
 npx hardhat run scripts/deploy.js --network hashkeyTestnet
-# Generates deployed-addresses.json and prints all addresses
 ```
 
 ---
 
 ## 13. Testing
 
-14 unit tests covering all core financial flows:
+18 comprehensive tests across all 4 contracts:
 
 ```bash
 cd contracts
@@ -400,27 +445,31 @@ npx hardhat test
 ```
 
 ```
-StreamYield Protocol Tests
+StreamYield Protocol
   MockUSDC
-    ✓ should have correct name and symbol
-    ✓ should mint tokens via faucet
-  RWAYieldRouter
-    ✓ should have correct APY rates (4%, 8%, 12%)
-    ✓ should deposit and track balance
-    ✓ should accrue yield over time
-    ✓ should withdraw principal and yield
+    ✓ has 6 decimals
+    ✓ faucet mints tokens to any address
   StreamVault
-    ✓ should create a stream and transfer tokens
-    ✓ should calculate vested amount correctly
-    ✓ should return 0 vested at stream start
-    ✓ should allow employee to claim vested tokens
-    ✓ should track employer and employee streams
+    ✓ emits StreamCreated on creation
+    ✓ vested amount is 0 at stream start
+    ✓ 50% vested at midpoint
+    ✓ 100% vested at end of stream
+    ✓ employee claims vested salary
+    ✓ non-employee cannot claim
+    ✓ cannot stream to self
+    ✓ tracks streams for employer and employee
+  RWAYieldRouter
+    ✓ correct APY per tier in bps
+    ✓ exposes ERC-4626 vault address for each tier
+    ✓ unauthorized cannot call deposit directly
+    ✓ stream creation deposits into ERC-4626 vault
   HSPSettlementEmitter
-    ✓ should emit settlement event with correct fields
-    ✓ should allow owner to emit settlement
-    ✓ should reject unauthorized callers
+    ✓ stream creation creates and express-settles an HSP record
+    ✓ claim creates a second STREAM_CLAIMED settlement
+    ✓ verifyProof returns true for a valid settlement
+    ✓ unauthorized cannot call createSettlement directly
 
-14 passing (929ms)
+18 passing (1s)
 ```
 
 ---
@@ -429,9 +478,9 @@ StreamYield Protocol Tests
 
 | Track | How StreamYield Qualifies |
 |-------|--------------------------|
-| **PayFi** | Real-time per-second B2B payroll streaming via `StreamVault` |
-| **DeFi** | `RWAYieldRouter` routes capital into 3 yield tiers; yield accrues autonomously |
-| **AI** | Zhipu GLM-4 agent makes vault routing decisions and generates natural language reasoning stored on-chain |
+| **PayFi** | Real-time per-second B2B payroll streaming via `StreamVault` — salary accrues every block, claimable any time |
+| **DeFi** | 3 ERC-4626 tokenized yield vaults (same standard as Aave/Morpho/Ondo) — shares, `totalAssets()`, `convertToAssets()` |
+| **AI** | Zhipu GLM-4 makes vault routing decisions autonomously based on Sharpe ratios, yield curve, and credit spreads — no rules |
 
 **3 out of 4 hackathon tracks covered** in a single, coherent protocol.
 
@@ -443,13 +492,13 @@ StreamYield Protocol Tests
 *Left-aligned product layout with protocol overview and vault tier comparison*
 
 ### AI Vault Advisor
-*Zhipu GLM-4 recommendation: Balanced vault, 8% APY, $65.75 projected yield — with full reasoning*
+*GLM-4 autonomous recommendation: confidence score, risk warning, alternative tier, market context*
 
 ### Employer Dashboard
-*Stream creation form with AI recommendation panel and vault tier selector*
+*Stream creation form with AI recommendation panel — confidence score and vault tier auto-selected*
 
 ### Employee Dashboard
-*Real-time vesting progress bar (polls every 5s) with claimable balance and on-chain AI reasoning*
+*Real-time vesting progress bar (polls every 5s), claimable balance, and on-chain GLM-4 reasoning*
 
 ---
 

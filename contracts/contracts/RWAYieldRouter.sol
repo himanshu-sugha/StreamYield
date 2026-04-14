@@ -61,16 +61,25 @@ contract RWATierVault is ERC4626, Ownable, ReentrancyGuard {
     // ─── ERC-4626 overrides ───────────────────────────────────────────────────
 
     /**
-     * @notice Total assets = deposited principal + simulated accrued yield.
-     * This makes shares appreciate continuously — the standard ERC-4626 pattern.
+     * @notice Total assets = actual token balance held by this vault.
+     * Yield accrual is tracked separately for APY reporting; on testnet the
+     * vault holds exactly what was deposited (no external yield source),
+     * so totalAssets() equals the real balance to prevent phantom-asset reverts.
+     *
+     * @dev On mainnet this would call an external yield protocol (Aave, Morpho, Ondo)
+     *      whose balance genuinely increases over time, funding real yield transfers.
      */
     function totalAssets() public view override returns (uint256) {
-        uint256 base = IERC20(asset()).balanceOf(address(this));
-        // Simulated yield accrual on total TVL — approximation for testnet
-        uint256 elapsed = block.timestamp - _genesisTimestamp();
-        uint256 yieldOnBase = (base * apyBps * elapsed) / (BPS_DENOMINATOR * SECONDS_PER_YEAR);
-        return base + yieldOnBase;
+        return IERC20(asset()).balanceOf(address(this));
     }
+
+    /// @notice Returns simulated yield for APY display (not backed by real tokens)
+    function simulatedYield(uint256 principal, uint256 elapsedSeconds)
+        external view returns (uint256)
+    {
+        return (principal * apyBps * elapsedSeconds) / (BPS_DENOMINATOR * SECONDS_PER_YEAR);
+    }
+
 
     // Genesis timestamp approximated by contract deployment (stored at first deposit)
     uint256 private _genesis;

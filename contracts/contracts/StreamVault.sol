@@ -5,18 +5,22 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./RWAYieldRouter.sol";
+import "./HSPSettlementEmitter.sol";
 
 /**
  * @title StreamVault
  * @dev Core StreamYield contract — streams payroll per-second to employees
  *      while routing unvested capital to RWA yield vaults.
  *
+ * HSP Integration:
+ *   Every payroll lifecycle action creates and immediately express-settles
+ *   an HSP settlement record via HSPSettlementEmitter, providing a full
+ *   on-chain audit trail for regulators and downstream settlement processors.
+ *
  * Flow:
- *   1. Employer calls createStream() — deposits total payroll amount
- *   2. Contract instantly routes unvested capital to RWAYieldRouter
- *   3. Employee calls claimVested() at any time to pull their accrued salary
- *   4. As capital vests, yield router withdraws to fund the claim
- *   5. Employer earns yield on the unvested portion throughout the period
+ *   1. Employer calls createStream()  → deposits capital, routes to ERC-4626 vault, creates HSP settlement
+ *   2. Employee calls claimVested()   → withdraws vested salary, creates HSP settlement
+ *   3. Employer calls closeStream()   → harvests yield from vault, creates HSP settlement
  */
 contract StreamVault is ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -33,12 +37,14 @@ contract StreamVault is ReentrancyGuard {
         uint256 claimedAmount;  // How much employee has claimed so far
         uint8   vaultTier;      // 0=Stable(4%), 1=Balanced(8%), 2=Growth(12%)
         bool    active;
-        string  aiReasoning;    // AI explanation for vault selection
+        string  aiReasoning;    // AI explanation for vault selection (stored on-chain)
     }
 
     // ─── State ───────────────────────────────────────────────────────────────
 
-    RWAYieldRouter public immutable yieldRouter;
+    RWAYieldRouter         public immutable yieldRouter;
+    HSPSettlementEmitter   public hspEmitter;   // Set after deployment
+
     uint256 public nextStreamId;
     mapping(uint256 => Stream) public streams;
     mapping(address => uint256[]) public employerStreams;
@@ -58,11 +64,24 @@ contract StreamVault is ReentrancyGuard {
     );
     event Claimed(uint256 indexed streamId, address indexed employee, uint256 amount);
     event StreamClosed(uint256 indexed streamId, uint256 yieldEarned);
+    event HSPEmitterSet(address indexed emitter);
 
     // ─── Constructor ─────────────────────────────────────────────────────────
 
     constructor(address _yieldRouter) {
         yieldRouter = RWAYieldRouter(_yieldRouter);
+    }
+
+    // ─── Admin ───────────────────────────────────────────────────────────────
+
+    /**
+     * @notice Link the HSP settlement emitter (called by deployer after deploy)
+     * @dev Optional — payroll functions work without it; HSP events are skipped if not set
+     */
+    function setHSPEmitter(address _hspEmitter) external {
+        require(address(hspEmitter) == address(0), "HSP emitter already set");
+        hspEmitter = HSPSettlementEmitter(_hspEmitter);
+        emit HSPEmitterSet(_hspEmitter);
     }
 
     // ─── External Functions ───────────────────────────────────────────────────
@@ -93,10 +112,11 @@ contract StreamVault is ReentrancyGuard {
         // Transfer payroll capital from employer to this contract
         IERC20(token).safeTransferFrom(msg.sender, address(this), totalAmount);
 
-        // Route entire unvested capital to the yield router (ERC-4626 deposit)
+        // Route entire capital to the ERC-4626 yield router
         IERC20(token).approve(address(yieldRouter), totalAmount);
         streamId = nextStreamId++;
         yieldRouter.deposit(token, totalAmount, vaultTier, streamId);
+
         streams[streamId] = Stream({
             employer:      msg.sender,
             employee:      employee,
@@ -123,6 +143,16 @@ contract StreamVault is ReentrancyGuard {
             vaultTier,
             aiReasoning
         );
+
+        // HSP: Register and immediately express-settle the stream creation
+        _hspSettle(
+            msg.sender,
+            employee,
+            token,
+            totalAmount,
+            streamId,
+            HSPSettlementEmitter.SettlementType.STREAM_CREATED
+        );
     }
 
     /**
@@ -139,11 +169,21 @@ contract StreamVault is ReentrancyGuard {
 
         s.claimedAmount += claimable;
 
-        // Withdraw from yield router (redeems ERC-4626 shares) to fund the payout
+        // Redeem ERC-4626 shares from yield router to fund the payout
         yieldRouter.withdraw(s.token, claimable, s.vaultTier, streamId);
 
         IERC20(s.token).safeTransfer(msg.sender, claimable);
         emit Claimed(streamId, msg.sender, claimable);
+
+        // HSP: Register and express-settle the claim
+        _hspSettle(
+            s.employer,
+            msg.sender,
+            s.token,
+            claimable,
+            streamId,
+            HSPSettlementEmitter.SettlementType.STREAM_CLAIMED
+        );
     }
 
     /**
@@ -162,6 +202,18 @@ contract StreamVault is ReentrancyGuard {
         uint256 yieldEarned = yieldRouter.harvestYield(streamId, s.employer);
 
         emit StreamClosed(streamId, yieldEarned);
+
+        // HSP: Register and express-settle yield harvest
+        if (yieldEarned > 0) {
+            _hspSettle(
+                msg.sender,
+                msg.sender, // employer receives yield
+                s.token,
+                yieldEarned,
+                streamId,
+                HSPSettlementEmitter.SettlementType.YIELD_HARVESTED
+            );
+        }
     }
 
     // ─── View Functions ───────────────────────────────────────────────────────
@@ -201,5 +253,25 @@ contract StreamVault is ReentrancyGuard {
         uint256 elapsed  = block.timestamp - s.startTime;
         uint256 duration = s.endTime - s.startTime;
         return (s.totalAmount * elapsed) / duration;
+    }
+
+    /**
+     * @dev Internal helper — creates and immediately express-settles an HSP record.
+     *      Silently skips if the emitter is not linked (e.g. in tests without emitter).
+     */
+    function _hspSettle(
+        address employer,
+        address employee,
+        address token,
+        uint256 amount,
+        uint256 streamId,
+        HSPSettlementEmitter.SettlementType settlementType
+    ) internal {
+        if (address(hspEmitter) == address(0)) return;
+        try hspEmitter.createSettlement(
+            employer, employee, token, amount, streamId, settlementType
+        ) returns (uint256 settlementId) {
+            hspEmitter.expressSettle(settlementId);
+        } catch {}
     }
 }
