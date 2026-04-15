@@ -13,12 +13,13 @@ export const hashkeyTestnet = defineChain({
     testnet: true,
 });
 
-// Deployed April 2026 — full protocol (ERC-4626 + Autonomous AI + HSP State Machine)
+// Deployed April 2026 — HashKey Chain Testnet (Chain ID 133)
+// Fallbacks are the real deployed addresses — .env.local overrides for local dev only
 export const CONTRACT_ADDRESSES = {
-    MockUSDC:            process.env.NEXT_PUBLIC_MOCK_USDC_ADDRESS    || "0x0000000000000000000000000000000000000000",
-    RWAYieldRouter:      process.env.NEXT_PUBLIC_RWA_ROUTER_ADDRESS   || "0x0000000000000000000000000000000000000000",
-    StreamVault:         process.env.NEXT_PUBLIC_STREAM_VAULT_ADDRESS || "0x0000000000000000000000000000000000000000",
-    HSPSettlementEmitter: process.env.NEXT_PUBLIC_HSP_EMITTER_ADDRESS || "0x0000000000000000000000000000000000000000",
+    MockUSDC:             process.env.NEXT_PUBLIC_MOCK_USDC_ADDRESS    || "0x2f60576867dd52A3fDFEc6710D42B4471A8534b5",
+    RWAYieldRouter:       process.env.NEXT_PUBLIC_RWA_ROUTER_ADDRESS   || "0xDa75B46D38eB43c68FA87be38D4D50A410FC8016",
+    StreamVault:          process.env.NEXT_PUBLIC_STREAM_VAULT_ADDRESS || "0x5818ea2a9163Efec9761CeF45cDd4D3B0b532809",
+    HSPSettlementEmitter: process.env.NEXT_PUBLIC_HSP_EMITTER_ADDRESS  || "0x3C3e73f0F092085c66c2804F17F5500743D735E2",
 };
 
 // Empty = use relative /api/* routes (Next.js API routes on Vercel)
