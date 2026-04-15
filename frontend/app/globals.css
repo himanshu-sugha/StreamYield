@@ -127,6 +127,15 @@ body {
 }
 .form-input::placeholder { color: #475569; }
 
+/* Fix: native <select> dropdown options must have explicit dark text
+   The OS popup always uses a light background regardless of CSS on the select
+   itself — so options need their own background + color to stay readable. */
+.form-input option {
+  background-color: #1e293b;
+  color: #f1f5f9;
+}
+
+
 /* Tier badge colors */
 .tier-stable { background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); }
 .tier-balanced { background: rgba(99, 102, 241, 0.15); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.3); }
