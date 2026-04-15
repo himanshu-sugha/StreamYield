@@ -2,12 +2,13 @@
 
 > **PayFi protocol that streams employee salaries per-second while an autonomous AI agent routes unvested capital into ERC-4626 RWA yield vaults on HashKey Chain — turning payroll from a cost center into a profit center.**
 
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-Vercel-000000?logo=vercel)](https://frontend-six-jade-81.vercel.app)
 [![HashKey Chain](https://img.shields.io/badge/HashKey%20Chain-Testnet%20133-6366f1)](https://testnet-explorer.hsk.xyz)
 [![Solidity](https://img.shields.io/badge/Solidity-0.8.24-363636)](https://soliditylang.org)
 [![Tests](https://img.shields.io/badge/Tests-18%2F18%20passing-10b981)](./contracts/test)
 [![AI](https://img.shields.io/badge/AI-GLM--4%20Autonomous-a855f7)](https://open.bigmodel.cn)
 [![Vaults](https://img.shields.io/badge/Vaults-ERC--4626-ec4899)](https://eips.ethereum.org/EIPS/eip-4626)
-[![Tracks](https://img.shields.io/badge/Tracks-PayFi%20%7C%20DeFi%20%7C%20AI-f59e0b)](https://dorahacks.io/hackathon/2045)
+[![Track](https://img.shields.io/badge/Track-PayFi-f59e0b)](https://dorahacks.io/hackathon/2045)
 
 ---
 
@@ -66,7 +67,7 @@ Employer deposits $100K payroll capital
           │
           ▼
 ┌─────────────────────────────────────────────────────┐
-│  AI Agent Backend (Node.js + Zhipu GLM-4)           │
+│  AI Agent (Next.js API Route + Zhipu GLM-4)         │
 │  Input: duration, amount, risk, market conditions   │
 │  → Autonomous vault decision (no hard-coded rules)  │
 │  → Returns: tier, confidence score, risk warning    │
@@ -162,9 +163,9 @@ Every payroll action in `StreamVault` automatically calls `createSettlement()` +
 
 ---
 
-## 5. AI Agent Backend
+## 5. AI Agent
 
-A Node.js/Express server where **Zhipu GLM-4 is the sole decision-maker**.
+The AI runs as **Next.js serverless API routes** (deployed on Vercel) — no separate server required. Zhipu GLM-4 is the sole decision-maker.
 
 ### API Endpoints
 
@@ -320,8 +321,8 @@ Next.js 14 app with wagmi v2, viem, and RainbowKit for wallet connectivity.
 | **Vault Standard** | ERC-4626 (3 independent tokenized vault contracts) |
 | **Development** | Hardhat v2 (CommonJS) |
 | **AI / LLM** | Zhipu GLM-4 — autonomous decision mode (no if/else rules) |
-| **AI Backend** | Node.js 18 + Express |
-| **Frontend** | Next.js 14 (App Router) + TypeScript |
+| **AI API** | Next.js 14 App Router API routes (`/api/recommend-vault`, `/api/analyze-risk`) |
+| **Hosting** | Vercel (frontend + AI serverless functions, no separate backend) |
 | **Web3** | wagmi v2 + viem + RainbowKit v2 |
 | **Styling** | Tailwind CSS + custom dark theme |
 | **Settlement** | HSP state machine (PENDING→PROCESSING→SETTLED lifecycle) |
@@ -348,25 +349,27 @@ streamyield/
 │   ├── deployed-addresses.json      # Auto-generated with sub-vault addresses
 │   └── .env                         # PRIVATE_KEY
 │
-├── backend/                         # AI Agent service
+├── backend/                         # Standalone Express server (local dev only)
 │   ├── server.js                    # Express + autonomous GLM-4 decision engine
-│   ├── package.json
 │   └── .env                         # ZHIPU_API_KEY, PORT
 │
-├── frontend/                        # Next.js 14 app
+├── frontend/                        # Next.js 14 app (deployed on Vercel)
 │   ├── app/
+│   │   ├── api/                     # Serverless AI API routes (replaces backend on Vercel)
+│   │   │   ├── recommend-vault/route.ts  # GLM-4 autonomous vault recommendation
+│   │   │   ├── analyze-risk/route.ts     # Multi-factor risk assessment
+│   │   │   ├── tiers/route.ts            # Vault metadata + market context
+│   │   │   └── health/route.ts           # AI agent health check
 │   │   ├── page.tsx                 # Landing page
 │   │   ├── employer/page.tsx        # Employer dashboard (AI + stream creation)
 │   │   ├── employee/page.tsx        # Employee dashboard (live vesting + claim)
 │   │   ├── ai-insights/page.tsx     # GLM-4 vault advisor
 │   │   ├── layout.tsx               # Root layout + providers
-│   │   ├── providers.tsx            # wagmi + RainbowKit + React Query
-│   │   └── globals.css              # Design system (dark mode)
-│   ├── components/
-│   │   └── Navbar.tsx               # Navigation bar
+│   │   └── providers.tsx            # wagmi + RainbowKit + React Query
 │   ├── lib/
-│   │   └── config.ts                # Contract addresses, ABIs, chain config
-│   └── .env.local                   # NEXT_PUBLIC_* contract addresses
+│   │   ├── config.ts                # Contract addresses, ABIs, chain config
+│   │   └── ai-logic.ts              # Shared GLM-4 + vault logic (used by API routes)
+│   └── .env.local                   # Contract addresses + ZHIPU_API_KEY
 │
 └── README.md
 ```
@@ -374,6 +377,12 @@ streamyield/
 ---
 
 ## 12. Quick Start
+
+### Live Demo
+
+🌐 **[https://frontend-six-jade-81.vercel.app](https://frontend-six-jade-81.vercel.app)**
+
+> Connect MetaMask to HashKey Chain Testnet (Chain ID 133) to interact with live contracts.
 
 ### Prerequisites
 - Node.js 18+
@@ -393,32 +402,34 @@ cd ../frontend && npm install
 
 ### 2. Configure Environment
 
-**`backend/.env`**
-```env
-ZHIPU_API_KEY=your_zhipu_api_key   # Free at: https://open.bigmodel.cn/usercenter/apikeys
-PORT=3001
-```
-
 **`frontend/.env.local`** (pre-filled with deployed addresses — no changes needed)
 ```env
 NEXT_PUBLIC_MOCK_USDC_ADDRESS=0x2f60576867dd52A3fDFEc6710D42B4471A8534b5
 NEXT_PUBLIC_RWA_ROUTER_ADDRESS=0xDa75B46D38eB43c68FA87be38D4D50A410FC8016
 NEXT_PUBLIC_STREAM_VAULT_ADDRESS=0x5818ea2a9163Efec9761CeF45cDd4D3B0b532809
 NEXT_PUBLIC_HSP_EMITTER_ADDRESS=0x3C3e73f0F092085c66c2804F17F5500743D735E2
-NEXT_PUBLIC_BACKEND_URL=http://localhost:3001
+
+# Optional — enables GLM-4 autonomous mode (server-side, not exposed to browser)
+ZHIPU_API_KEY=your_zhipu_api_key
 ```
+
+> Get a free Zhipu API key at [open.bigmodel.cn/usercenter/apikeys](https://open.bigmodel.cn/usercenter/apikeys)  
+> Without it the AI runs in fallback mode (rules-based, still functional).
 
 ### 3. Run Locally
 
 ```bash
-# Terminal 1 — AI backend
-cd backend && node server.js
-# → http://localhost:3001
-
-# Terminal 2 — Frontend
+# Frontend (includes AI API routes — no separate backend needed)
 cd frontend && npm run dev
 # → http://localhost:3000
+# → AI available at http://localhost:3000/api/recommend-vault
 ```
+
+> The standalone `backend/` Express server still works for local development if preferred:
+> ```bash
+> cd backend && node server.js  # → http://localhost:3001
+> # Set NEXT_PUBLIC_BACKEND_URL=http://localhost:3001 in frontend/.env.local
+> ```
 
 ### 4. Get Testnet Tokens
 
@@ -474,31 +485,43 @@ StreamYield Protocol
 
 ---
 
-## 14. Multi-Track Coverage
+## 14. Track: PayFi
 
-| Track | How StreamYield Qualifies |
-|-------|--------------------------|
-| **PayFi** | Real-time per-second B2B payroll streaming via `StreamVault` — salary accrues every block, claimable any time |
-| **DeFi** | 3 ERC-4626 tokenized yield vaults (same standard as Aave/Morpho/Ondo) — shares, `totalAssets()`, `convertToAssets()` |
-| **AI** | Zhipu GLM-4 makes vault routing decisions autonomously based on Sharpe ratios, yield curve, and credit spreads — no rules |
+StreamYield is submitted to the **PayFi track**.
 
-**3 out of 4 hackathon tracks covered** in a single, coherent protocol.
+| PayFi Criteria | Implementation |
+|----------------|----------------|
+| **Real-time payments** | Per-second linear vesting — salary accrues every block, claimable instantly |
+| **Capital efficiency** | Idle payroll deployed to ERC-4626 yield vaults from deposit to claim |
+| **B2B use case** | Employer → Employee payroll streaming with on-chain audit trail |
+| **HSP native** | Every payroll action creates + express-settles an HSP settlement record |
+| **AI-optimised** | GLM-4 autonomously selects vault based on duration, risk, and market context |
+
+**Core value proposition:** $2.3T in global payroll sits idle for up to 30 days. StreamYield captures that yield window.
+
+| Company | Monthly Payroll | Yield/month (Balanced 8%) |
+|---------|----------------|---------------------------|
+| Startup | $50,000 | ~$330 |
+| SME | $500,000 | ~$3,288 |
+| Enterprise | $5,000,000 | ~$32,877 |
 
 ---
 
-## 15. Screenshots
+## 15. Screenshots & Demo
+
+🌐 **Live Demo:** [https://frontend-six-jade-81.vercel.app](https://frontend-six-jade-81.vercel.app)
 
 ### Landing Page
-*Left-aligned product layout with protocol overview and vault tier comparison*
+*Left-aligned product layout — idle capital problem, per-second streaming explainer, vault tier comparison*
 
 ### AI Vault Advisor
-*GLM-4 autonomous recommendation: confidence score, risk warning, alternative tier, market context*
+*GLM-4 autonomous recommendation — confidence score, primary reason, risk warning, alternative tier, full market context*
 
 ### Employer Dashboard
-*Stream creation form with AI recommendation panel — confidence score and vault tier auto-selected*
+*Stream creation form — AI recommendation auto-selects vault tier, GLM-4 reasoning stored on-chain in `aiReasoning` field*
 
 ### Employee Dashboard
-*Real-time vesting progress bar (polls every 5s), claimable balance, and on-chain GLM-4 reasoning*
+*Live vesting progress bar (polls every 5s), claimable mUSDC balance, on-chain GLM-4 reasoning from when employer created the stream*
 
 ---
 
@@ -516,4 +539,4 @@ GitHub: [@himanshu-sugha](https://github.com/himanshu-sugha)
 
 ---
 
-*HashKey On-Chain Horizon Hackathon 2026 · PayFi + DeFi + AI tracks*
+*HashKey On-Chain Horizon Hackathon 2026 · PayFi Track*
