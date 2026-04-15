@@ -21,7 +21,9 @@ export const CONTRACT_ADDRESSES = {
     HSPSettlementEmitter: process.env.NEXT_PUBLIC_HSP_EMITTER_ADDRESS || "0x0000000000000000000000000000000000000000",
 };
 
-export const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+// Empty = use relative /api/* routes (Next.js API routes on Vercel)
+// Set to http://localhost:3001 to use the standalone Express backend locally
+export const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "";
 
 export const STREAM_VAULT_ABI = [
     {
