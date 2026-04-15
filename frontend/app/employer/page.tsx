@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useAccount, useWriteContract, useWaitForTransactionReceipt, useChainId } from "wagmi";
-import { parseUnits } from "viem";
+import { useAccount, useWriteContract, useWaitForTransactionReceipt, useChainId, useReadContract } from "wagmi";
+import { parseUnits, formatUnits } from "viem";
 import Navbar from "@/components/Navbar";
 import { CONTRACT_ADDRESSES, STREAM_VAULT_ABI, ERC20_ABI, BACKEND_URL } from "@/lib/config";
 
@@ -24,15 +24,29 @@ interface AIRecommendation {
 type Step = "idle" | "approving" | "creating" | "done";
 
 export default function EmployerPage() {
-  const { isConnected } = useAccount();
+  const { address, isConnected } = useAccount();
   const chainId = useChainId();
-  const isWrongNetwork = chainId !== 133; // HashKey Chain Testnet
+  const isWrongNetwork = chainId !== 133;
+
   const [form, setForm]         = useState({ employee: "", amount: "", duration: "30", riskTolerance: "medium" });
   const [aiResult, setAiResult] = useState<AIRecommendation | null>(null);
   const [loading, setLoading]   = useState(false);
   const [selectedTier, setSelectedTier] = useState<number | null>(null);
   const [step, setStep]         = useState<Step>("idle");
-  const [pendingCreate, setPendingCreate] = useState(false); // gate: only call createStream once per approval
+  const [pendingCreate, setPendingCreate] = useState(false);
+
+  // Live mUSDC balance
+  const { data: rawBalance, refetch: refetchBalance } = useReadContract({
+    address: CONTRACT_ADDRESSES.MockUSDC as `0x${string}`,
+    abi: ERC20_ABI,
+    functionName: "balanceOf",
+    args: [address as `0x${string}`],
+    query: { enabled: !!address },
+  });
+  const mUSDCBalance = rawBalance ? formatUnits(rawBalance as bigint, 6) : "0";
+  const amountNeeded = form.amount ? parseFloat(form.amount) : 0;
+  const hasEnough    = parseFloat(mUSDCBalance) >= amountNeeded;
+  const shortfall    = Math.max(0, amountNeeded - parseFloat(mUSDCBalance)).toFixed(2); // gate: only call createStream once per approval
 
   // ── Two separate write hooks — one per tx ─────────────────────────────────
   const {
@@ -112,6 +126,9 @@ export default function EmployerPage() {
   const txErrorMsg = txError
     ? (txError as { shortMessage?: string }).shortMessage ?? txError.message ?? "Transaction failed"
     : null;
+
+  // Refetch balance after successful stream creation
+  useEffect(() => { if (createSuccess) refetchBalance(); }, [createSuccess, refetchBalance]);
 
   // ── AI recommendation ─────────────────────────────────────────────────────
   const handleAskAI = async () => {
@@ -244,6 +261,37 @@ export default function EmployerPage() {
                   {loading ? "Analysing with GLM-4…" : "Get AI vault recommendation"}
                 </button>
               </div>
+
+              {/* Balance indicator */}
+              {address && (
+                <div className={`mt-4 pt-4 border-t border-white/5 flex items-center justify-between`}>
+                  <span className="text-xs text-slate-500">Your mUSDC balance</span>
+                  <span className={`text-xs font-semibold ${
+                    !form.amount ? "text-slate-300" :
+                    hasEnough ? "text-emerald-400" : "text-red-400"
+                  }`}>
+                    {parseFloat(mUSDCBalance).toLocaleString(undefined, { maximumFractionDigits: 2 })} mUSDC
+                  </span>
+                </div>
+              )}
+
+              {/* Insufficient balance warning */}
+              {address && form.amount && !hasEnough && (
+                <div className="mt-3 border border-red-500/20 rounded-lg p-3 bg-red-500/5">
+                  <p className="text-xs text-red-400 font-medium mb-1">Insufficient mUSDC balance</p>
+                  <p className="text-xs text-slate-400 mb-2">
+                    You need <strong>{shortfall} more mUSDC</strong>. Use the faucet to get free testnet tokens.
+                  </p>
+                  <a
+                    href={`https://testnet-explorer.hsk.xyz/address/0x2f60576867dd52A3fDFEc6710D42B4471A8534b5#write`}
+                    target="_blank"
+                    rel="noopener"
+                    className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
+                  >
+                    → Call faucet() on MockUSDC (HashKey Explorer)
+                  </a>
+                </div>
+              )}
             </div>
 
             {/* Vault tier selector */}
@@ -301,7 +349,7 @@ export default function EmployerPage() {
             <button
               className="btn-primary w-full py-3 text-sm"
               onClick={handleApproveAndCreate}
-              disabled={!form.employee || !form.amount || selectedTier === null || isBusy || step === "done" || isWrongNetwork}
+              disabled={!form.employee || !form.amount || selectedTier === null || isBusy || step === "done" || isWrongNetwork || (!!form.amount && !hasEnough)}
             >
               {buttonLabel()}
             </button>
@@ -389,19 +437,20 @@ export default function EmployerPage() {
                   rel="noopener"
                   className="text-xs text-slate-500 hover:text-slate-300 transition-colors block"
                 >
-                  HSK faucet (gas) → faucet.hsk.xyz
+                  HSK (gas) → faucet.hsk.xyz
                 </a>
-                <p className="text-xs text-slate-600">
-                  mUSDC: call <code className="text-indigo-400">faucet()</code> on{" "}
+                <div className="text-xs text-slate-600">
+                  <p className="mb-1">mUSDC — call <code className="text-indigo-400">faucet(yourAddress, amount)</code>:</p>
                   <a
-                    href="https://testnet-explorer.hsk.xyz/address/0x2f60576867dd52A3fDFEc6710D42B4471A8534b5"
+                    href="https://testnet-explorer.hsk.xyz/address/0x2f60576867dd52A3fDFEc6710D42B4471A8534b5#write"
                     target="_blank"
                     rel="noopener"
-                    className="text-slate-500 hover:text-slate-300 transition-colors"
+                    className="text-indigo-400 hover:text-indigo-300 transition-colors"
                   >
-                    MockUSDC contract
+                    MockUSDC on HashKey Explorer →
                   </a>
-                </p>
+                  <p className="text-slate-700 mt-1">amount: 1000000000 = 1,000 mUSDC (6 decimals)</p>
+                </div>
               </div>
             </div>
           </div>
