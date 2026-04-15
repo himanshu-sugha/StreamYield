@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { useAccount, useWriteContract, useWaitForTransactionReceipt, useChainId } from "wagmi";
 import { parseUnits } from "viem";
 import Navbar from "@/components/Navbar";
 import { CONTRACT_ADDRESSES, STREAM_VAULT_ABI, ERC20_ABI, BACKEND_URL } from "@/lib/config";
@@ -25,6 +25,8 @@ type Step = "idle" | "approving" | "creating" | "done";
 
 export default function EmployerPage() {
   const { isConnected } = useAccount();
+  const chainId = useChainId();
+  const isWrongNetwork = chainId !== 133; // HashKey Chain Testnet
   const [form, setForm]         = useState({ employee: "", amount: "", duration: "30", riskTolerance: "medium" });
   const [aiResult, setAiResult] = useState<AIRecommendation | null>(null);
   const [loading, setLoading]   = useState(false);
@@ -37,12 +39,14 @@ export default function EmployerPage() {
     writeContract: writeApprove,
     isPending: approvePending,
     data: approveHash,
+    error: approveError,
   } = useWriteContract();
 
   const {
     writeContract: writeCreate,
     isPending: createPending,
     data: createHash,
+    error: createError,
   } = useWriteContract();
 
   const { isSuccess: approveSuccess } = useWaitForTransactionReceipt({ hash: approveHash });
@@ -51,7 +55,9 @@ export default function EmployerPage() {
   // ── Step 1: Approve ───────────────────────────────────────────────────────
   const handleApproveAndCreate = () => {
     if (!form.employee || !form.amount || selectedTier === null) return;
+    if (isWrongNetwork) return; // guard — shouldn't be reachable since button is disabled
     const amount = parseUnits(form.amount, 6);
+    console.log("[StreamYield] Step 1: approving", amount.toString(), "mUSDC for StreamVault");
     setStep("approving");
     setPendingCreate(true);
     writeApprove({
@@ -67,10 +73,12 @@ export default function EmployerPage() {
     if (!approveSuccess || !pendingCreate) return;
     setPendingCreate(false);
     setStep("creating");
+    console.log("[StreamYield] Approval confirmed — Step 2: createStream");
 
     const amount      = parseUnits(form.amount, 6);
     const durationSec = BigInt(Math.max(60, parseInt(form.duration) * 86400));
-    const reasoning   = aiResult?.aiReasoning ?? "Manual vault selection — no AI recommendation requested.";
+    const reasoning   = aiResult?.aiReasoning ?? "Manual vault selection.";
+    console.log("[StreamYield] createStream args:", { employee: form.employee, amount: amount.toString(), durationSec: durationSec.toString(), tier: selectedTier, reasoning });
 
     writeCreate({
       address: CONTRACT_ADDRESSES.StreamVault as `0x${string}`,
@@ -100,6 +108,10 @@ export default function EmployerPage() {
   };
 
   const isBusy = approvePending || createPending || step === "approving" || step === "creating";
+  const txError = approveError || createError;
+  const txErrorMsg = txError
+    ? (txError as { shortMessage?: string }).shortMessage ?? txError.message ?? "Transaction failed"
+    : null;
 
   // ── AI recommendation ─────────────────────────────────────────────────────
   const handleAskAI = async () => {
@@ -141,7 +153,7 @@ export default function EmployerPage() {
               </svg>
             </div>
             <h2 className="text-lg font-semibold mb-2">Connect your wallet</h2>
-            <p className="text-sm text-slate-500">Connect to HashKey Chain Testnet to access the employer dashboard.</p>
+            <p className="text-sm text-slate-500">Connect MetaMask to HashKey Chain Testnet (Chain ID 133) to continue.</p>
           </div>
         </div>
       </main>
@@ -154,6 +166,17 @@ export default function EmployerPage() {
       <Navbar />
 
       <div className="max-w-6xl mx-auto px-6 pt-24 pb-16">
+
+        {/* Wrong network banner */}
+        {isWrongNetwork && (
+          <div className="mb-6 border border-amber-500/30 rounded-xl p-4 bg-amber-500/5 flex items-center gap-3">
+            <span className="text-amber-400 text-lg">⚠</span>
+            <div>
+              <p className="text-sm font-medium text-amber-300">Wrong network — connected to Chain ID {chainId}</p>
+              <p className="text-xs text-slate-500 mt-0.5">Switch MetaMask to <strong>HashKey Chain Testnet</strong> (Chain ID 133, RPC: https://testnet.hsk.xyz) to create streams.</p>
+            </div>
+          </div>
+        )}
 
         {/* Page header */}
         <div className="mb-8 pt-4">
@@ -260,11 +283,25 @@ export default function EmployerPage() {
               </div>
             )}
 
+            {/* Error display */}
+            {txErrorMsg && step !== "done" && (
+              <div className="border border-red-500/20 rounded-lg p-4 bg-red-500/5">
+                <p className="text-xs font-medium text-red-400 mb-1">Transaction error</p>
+                <p className="text-xs text-slate-400">{txErrorMsg}</p>
+                <button
+                  className="text-xs text-slate-500 hover:text-slate-300 mt-2 underline"
+                  onClick={() => setStep("idle")}
+                >
+                  Reset and try again
+                </button>
+              </div>
+            )}
+
             {/* Submit */}
             <button
               className="btn-primary w-full py-3 text-sm"
               onClick={handleApproveAndCreate}
-              disabled={!form.employee || !form.amount || selectedTier === null || isBusy || step === "done"}
+              disabled={!form.employee || !form.amount || selectedTier === null || isBusy || step === "done" || isWrongNetwork}
             >
               {buttonLabel()}
             </button>
