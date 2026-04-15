@@ -1,15 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { parseUnits } from "viem";
 import Navbar from "@/components/Navbar";
-import { CONTRACT_ADDRESSES, ERC20_ABI, BACKEND_URL } from "@/lib/config";
+import { CONTRACT_ADDRESSES, STREAM_VAULT_ABI, ERC20_ABI, BACKEND_URL } from "@/lib/config";
 
 const TIER_INFO = [
-  { id: 0, name: "Stable", apy: "4%", risk: "Conservative", badgeCls: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" },
-  { id: 1, name: "Balanced", apy: "8%", risk: "Moderate", badgeCls: "bg-indigo-500/10 text-indigo-400 border-indigo-500/20" },
-  { id: 2, name: "Growth", apy: "12%", risk: "Aggressive", badgeCls: "bg-amber-500/10 text-amber-400 border-amber-500/20" },
+  { id: 0, name: "Stable",   apy: "4%",  risk: "Conservative", badgeCls: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" },
+  { id: 1, name: "Balanced", apy: "8%",  risk: "Moderate",     badgeCls: "bg-indigo-500/10 text-indigo-400 border-indigo-500/20"  },
+  { id: 2, name: "Growth",   apy: "12%", risk: "Aggressive",   badgeCls: "bg-amber-500/10 text-amber-400 border-amber-500/20"     },
 ];
 
 interface AIRecommendation {
@@ -20,27 +20,99 @@ interface AIRecommendation {
   aiReasoning: string;
 }
 
+// ── Step enum so UI always shows the right label ──────────────────────────────
+type Step = "idle" | "approving" | "creating" | "done";
+
 export default function EmployerPage() {
   const { isConnected } = useAccount();
-  const [form, setForm] = useState({ employee: "", amount: "", duration: "30", riskTolerance: "medium" });
+  const [form, setForm]         = useState({ employee: "", amount: "", duration: "30", riskTolerance: "medium" });
   const [aiResult, setAiResult] = useState<AIRecommendation | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading]   = useState(false);
   const [selectedTier, setSelectedTier] = useState<number | null>(null);
+  const [step, setStep]         = useState<Step>("idle");
+  const [pendingCreate, setPendingCreate] = useState(false); // gate: only call createStream once per approval
 
-  const { writeContract, isPending, data: hash } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+  // ── Two separate write hooks — one per tx ─────────────────────────────────
+  const {
+    writeContract: writeApprove,
+    isPending: approvePending,
+    data: approveHash,
+  } = useWriteContract();
 
+  const {
+    writeContract: writeCreate,
+    isPending: createPending,
+    data: createHash,
+  } = useWriteContract();
+
+  const { isSuccess: approveSuccess } = useWaitForTransactionReceipt({ hash: approveHash });
+  const { isSuccess: createSuccess  } = useWaitForTransactionReceipt({ hash: createHash  });
+
+  // ── Step 1: Approve ───────────────────────────────────────────────────────
+  const handleApproveAndCreate = () => {
+    if (!form.employee || !form.amount || selectedTier === null) return;
+    const amount = parseUnits(form.amount, 6);
+    setStep("approving");
+    setPendingCreate(true);
+    writeApprove({
+      address: CONTRACT_ADDRESSES.MockUSDC as `0x${string}`,
+      abi: ERC20_ABI,
+      functionName: "approve",
+      args: [CONTRACT_ADDRESSES.StreamVault as `0x${string}`, amount],
+    });
+  };
+
+  // ── Step 2: CreateStream — fires automatically after approve confirms ─────
+  useEffect(() => {
+    if (!approveSuccess || !pendingCreate) return;
+    setPendingCreate(false);
+    setStep("creating");
+
+    const amount      = parseUnits(form.amount, 6);
+    const durationSec = BigInt(Math.max(60, parseInt(form.duration) * 86400));
+    const reasoning   = aiResult?.aiReasoning ?? "Manual vault selection — no AI recommendation requested.";
+
+    writeCreate({
+      address: CONTRACT_ADDRESSES.StreamVault as `0x${string}`,
+      abi: STREAM_VAULT_ABI,
+      functionName: "createStream",
+      args: [
+        form.employee as `0x${string}`,
+        CONTRACT_ADDRESSES.MockUSDC as `0x${string}`,
+        amount,
+        durationSec,
+        selectedTier as number,
+        reasoning,
+      ],
+    });
+  }, [approveSuccess, pendingCreate]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Done ──────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (createSuccess) setStep("done");
+  }, [createSuccess]);
+
+  // ── Label helpers ─────────────────────────────────────────────────────────
+  const buttonLabel = () => {
+    if (step === "approving" || approvePending) return "Step 1/2 — Approving mUSDC…";
+    if (step === "creating"  || createPending)  return "Step 2/2 — Creating stream…";
+    return "Approve & create stream";
+  };
+
+  const isBusy = approvePending || createPending || step === "approving" || step === "creating";
+
+  // ── AI recommendation ─────────────────────────────────────────────────────
   const handleAskAI = async () => {
     if (!form.amount || !form.duration) return;
     setLoading(true);
     setAiResult(null);
     try {
-      const res = await fetch(`${BACKEND_URL}/api/recommend-vault`, {
+      const res  = await fetch(`${BACKEND_URL}/api/recommend-vault`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          amount: parseFloat(form.amount),
-          durationDays: parseInt(form.duration),
+          amount:        parseFloat(form.amount),
+          durationDays:  parseInt(form.duration),
           riskTolerance: form.riskTolerance,
         }),
       });
@@ -54,17 +126,6 @@ export default function EmployerPage() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleApproveAndCreate = async () => {
-    if (!form.employee || !form.amount || selectedTier === null) return;
-    const amount = parseUnits(form.amount, 6);
-    writeContract({
-      address: CONTRACT_ADDRESSES.MockUSDC as `0x${string}`,
-      abi: ERC20_ABI,
-      functionName: "approve",
-      args: [CONTRACT_ADDRESSES.StreamVault as `0x${string}`, amount],
-    });
   };
 
   if (!isConnected) {
@@ -157,7 +218,7 @@ export default function EmployerPage() {
                   onClick={handleAskAI}
                   disabled={loading || !form.amount || !form.duration}
                 >
-                  {loading ? "Analysing with GLM-4..." : "Get AI vault recommendation"}
+                  {loading ? "Analysing with GLM-4…" : "Get AI vault recommendation"}
                 </button>
               </div>
             </div>
@@ -184,26 +245,50 @@ export default function EmployerPage() {
               </div>
             </div>
 
+            {/* Step indicator */}
+            {step !== "idle" && step !== "done" && (
+              <div className="border border-indigo-500/20 rounded-lg p-4 bg-indigo-500/5 flex items-center gap-3">
+                <div className="w-4 h-4 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                <div>
+                  <p className="text-xs font-medium text-indigo-300">{buttonLabel()}</p>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {step === "approving"
+                      ? "Confirm the approval in MetaMask. This lets StreamVault move your mUSDC."
+                      : "Approval confirmed — confirm the stream creation in MetaMask."}
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Submit */}
             <button
               className="btn-primary w-full py-3 text-sm"
               onClick={handleApproveAndCreate}
-              disabled={!form.employee || !form.amount || selectedTier === null || isPending || isConfirming}
+              disabled={!form.employee || !form.amount || selectedTier === null || isBusy || step === "done"}
             >
-              {isPending ? "Waiting for signature..." : isConfirming ? "Confirming on-chain..." : "Approve & create stream"}
+              {buttonLabel()}
             </button>
 
-            {isSuccess && (
+            {step === "done" && (
               <div className="border border-emerald-500/20 rounded-lg p-4 bg-emerald-500/5 text-center">
-                <p className="text-sm text-emerald-400 font-medium">Stream created successfully</p>
-                <a
-                  href={`https://testnet-explorer.hsk.xyz/tx/${hash}`}
-                  target="_blank"
-                  rel="noopener"
-                  className="text-xs text-slate-500 hover:text-slate-300 transition-colors mt-1 inline-block"
+                <p className="text-sm text-emerald-400 font-medium mb-1">✓ Stream created successfully</p>
+                <p className="text-xs text-slate-500 mb-2">Share the stream ID with your employee so they can track their salary.</p>
+                {createHash && (
+                  <a
+                    href={`https://testnet-explorer.hsk.xyz/tx/${createHash}`}
+                    target="_blank"
+                    rel="noopener"
+                    className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
+                  >
+                    View on HashKey Explorer →
+                  </a>
+                )}
+                <button
+                  className="btn-secondary text-xs py-1.5 px-4 mt-3 block w-full"
+                  onClick={() => { setStep("idle"); setForm({ employee: "", amount: "", duration: "30", riskTolerance: "medium" }); setSelectedTier(null); setAiResult(null); }}
                 >
-                  View transaction on HashKey Explorer →
-                </a>
+                  Create another stream
+                </button>
               </div>
             )}
           </div>
@@ -216,14 +301,14 @@ export default function EmployerPage() {
 
               {!aiResult && !loading && (
                 <div className="text-center py-10 text-slate-600">
-                  <p className="text-xs">Fill in the stream details and click<br />{' “Get AI vault recommendation”'}</p>
+                  <p className="text-xs">Fill in the stream details and click<br />{'"Get AI vault recommendation"'}</p>
                 </div>
               )}
 
               {loading && (
                 <div className="text-center py-10">
                   <div className="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-                  <p className="text-xs text-slate-500">GLM-4 is analysing your stream...</p>
+                  <p className="text-xs text-slate-500">GLM-4 is analysing your stream…</p>
                 </div>
               )}
 
@@ -272,7 +357,7 @@ export default function EmployerPage() {
                 <p className="text-xs text-slate-600">
                   mUSDC: call <code className="text-indigo-400">faucet()</code> on{" "}
                   <a
-                    href="https://testnet-explorer.hsk.xyz/address/0x1ecED1DDBF70987d28659fd83fA9B24D884bDB87"
+                    href="https://testnet-explorer.hsk.xyz/address/0x2f60576867dd52A3fDFEc6710D42B4471A8534b5"
                     target="_blank"
                     rel="noopener"
                     className="text-slate-500 hover:text-slate-300 transition-colors"
