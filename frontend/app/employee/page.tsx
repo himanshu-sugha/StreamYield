@@ -35,9 +35,21 @@ function StreamCard({ streamId }: { streamId: bigint }) {
 
     if (!stream) return <div className="glass-card p-4 text-center text-slate-500 text-sm">Loading stream #{streamId.toString()}...</div>;
 
-    const s = stream as any;
+    interface StreamData {
+        employer: string;
+        employee: string;
+        token: string;
+        totalAmount: bigint;
+        startTime: bigint;
+        endTime: bigint;
+        claimedAmount: bigint;
+        vaultTier: number;
+        active: boolean;
+        aiReasoning: string;
+    }
+
+    const s = stream as StreamData;
     const totalAmount = BigInt(s.totalAmount);
-    const claimed = BigInt(s.claimedAmount);
     const now = BigInt(Math.floor(Date.now() / 1000));
     const start = BigInt(s.startTime);
     const end = BigInt(s.endTime);

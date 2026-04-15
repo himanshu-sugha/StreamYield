@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { parseUnits } from "viem";
 import Navbar from "@/components/Navbar";
-import { CONTRACT_ADDRESSES, STREAM_VAULT_ABI, ERC20_ABI, BACKEND_URL } from "@/lib/config";
+import { CONTRACT_ADDRESSES, ERC20_ABI, BACKEND_URL } from "@/lib/config";
 
 const TIER_INFO = [
   { id: 0, name: "Stable", apy: "4%", risk: "Conservative", badgeCls: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" },
@@ -12,10 +12,18 @@ const TIER_INFO = [
   { id: 2, name: "Growth", apy: "12%", risk: "Aggressive", badgeCls: "bg-amber-500/10 text-amber-400 border-amber-500/20" },
 ];
 
+interface AIRecommendation {
+  tier: number;
+  tierName: string;
+  apy: string;
+  projectedYieldUSD: string;
+  aiReasoning: string;
+}
+
 export default function EmployerPage() {
   const { isConnected } = useAccount();
   const [form, setForm] = useState({ employee: "", amount: "", duration: "30", riskTolerance: "medium" });
-  const [aiResult, setAiResult] = useState<any>(null);
+  const [aiResult, setAiResult] = useState<AIRecommendation | null>(null);
   const [loading, setLoading] = useState(false);
   const [selectedTier, setSelectedTier] = useState<number | null>(null);
 
@@ -208,7 +216,7 @@ export default function EmployerPage() {
 
               {!aiResult && !loading && (
                 <div className="text-center py-10 text-slate-600">
-                  <p className="text-xs">Fill in the stream details and click<br />"Get AI vault recommendation"</p>
+                  <p className="text-xs">Fill in the stream details and click<br />{' “Get AI vault recommendation”'}</p>
                 </div>
               )}
 

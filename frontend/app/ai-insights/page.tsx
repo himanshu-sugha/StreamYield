@@ -37,9 +37,19 @@ const VAULT_INFO = [
   },
 ];
 
+interface VaultRecommendation {
+  tier: number;
+  tierName: string;
+  apy: string;
+  projectedYieldUSD: string;
+  riskLevel: string;
+  aiReasoning: string;
+  ruleBasedReasons?: string[];
+}
+
 export default function AIInsightsPage() {
   const [form, setForm] = useState({ amount: "10000", duration: "30", risk: "medium" });
-  const [result, setResult] = useState<any>(null);
+  const [result, setResult] = useState<VaultRecommendation | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -150,7 +160,7 @@ export default function AIInsightsPage() {
 
             {!result && !loading && !error && (
               <div className="flex items-center justify-center h-56 text-slate-600">
-                <p className="text-xs text-center">Fill in the parameters on the left<br />and click "Get recommendation"</p>
+                <p className="text-xs text-center">Fill in the parameters on the left<br />and click {' “Get recommendation”'}</p>
               </div>
             )}
 
@@ -195,11 +205,11 @@ export default function AIInsightsPage() {
                   <p className="text-xs text-slate-300 leading-relaxed">{result.aiReasoning}</p>
                 </div>
 
-                {result.ruleBasedReasons?.length > 0 && (
+                {(result.ruleBasedReasons?.length ?? 0) > 0 && (
                   <div>
                     <p className="text-xs text-slate-600 mb-2">Decision factors</p>
                     <ul className="space-y-1">
-                      {result.ruleBasedReasons.map((r: string, i: number) => (
+                      {result.ruleBasedReasons?.map((r: string, i: number) => (
                         <li key={i} className="text-xs text-slate-500 flex gap-2">
                           <span className="text-indigo-500 mt-px">›</span> {r}
                         </li>

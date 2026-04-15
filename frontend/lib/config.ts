@@ -1,4 +1,3 @@
-import { createConfig, http } from "wagmi";
 import { defineChain } from "viem";
 
 export const hashkeyTestnet = defineChain({
