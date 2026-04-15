@@ -2,13 +2,6 @@
 
 > **PayFi protocol that streams employee salaries per-second while an autonomous AI agent routes unvested capital into ERC-4626 RWA yield vaults on HashKey Chain — turning payroll from a cost center into a profit center.**
 
-[![Live Demo](https://img.shields.io/badge/Live%20Demo-Vercel-000000?logo=vercel)](https://frontend-six-jade-81.vercel.app)
-[![HashKey Chain](https://img.shields.io/badge/HashKey%20Chain-Testnet%20133-6366f1)](https://testnet-explorer.hsk.xyz)
-[![Solidity](https://img.shields.io/badge/Solidity-0.8.24-363636)](https://soliditylang.org)
-[![Tests](https://img.shields.io/badge/Tests-18%2F18%20passing-10b981)](./contracts/test)
-[![AI](https://img.shields.io/badge/AI-GLM--4%20Autonomous-a855f7)](https://open.bigmodel.cn)
-[![Vaults](https://img.shields.io/badge/Vaults-ERC--4626-ec4899)](https://eips.ethereum.org/EIPS/eip-4626)
-[![Track](https://img.shields.io/badge/Track-PayFi-f59e0b)](https://dorahacks.io/hackathon/2045)
 
 ---
 
@@ -507,21 +500,10 @@ StreamYield is submitted to the **PayFi track**.
 
 ---
 
-## 15. Screenshots & Demo
+## 15.Demo
 
 🌐 **Live Demo:** [https://frontend-six-jade-81.vercel.app](https://frontend-six-jade-81.vercel.app)
 
-### Landing Page
-*Left-aligned product layout — idle capital problem, per-second streaming explainer, vault tier comparison*
-
-### AI Vault Advisor
-*GLM-4 autonomous recommendation — confidence score, primary reason, risk warning, alternative tier, full market context*
-
-### Employer Dashboard
-*Stream creation form — AI recommendation auto-selects vault tier, GLM-4 reasoning stored on-chain in `aiReasoning` field*
-
-### Employee Dashboard
-*Live vesting progress bar (polls every 5s), claimable mUSDC balance, on-chain GLM-4 reasoning from when employer created the stream*
 
 ---
 
